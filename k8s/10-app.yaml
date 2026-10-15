@@ -1,0 +1,53 @@
+# Node.js application. __IMAGE__ is replaced by scripts/deploy.sh with the image Jenkins just pushed.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-app
+  namespace: devops
+  labels: { app: node-app }
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: node-app }
+  template:
+    metadata:
+      labels: { app: node-app }
+    spec:
+      containers:
+        - name: node-app
+          image: __IMAGE__
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: PROMETHEUS_URL
+              value: http://prometheus:9090
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 20m, memory: 48Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-app
+  namespace: devops
+spec:
+  type: NodePort
+  selector: { app: node-app }
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      nodePort: 30080

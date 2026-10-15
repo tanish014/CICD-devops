@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars and fill in.
+admin_cidr = "203.0.113.10/32"   # your public IP: curl https://checkip.amazonaws.com  (append /32)
+key_name   = "my-ec2-keypair"    # an existing EC2 key pair in the region below
+region     = "ap-south-1"
+
+# Optional: instance type for EC2 #2 (defaults to t3.small)
+# app_instance_type = "t3.small"
+
+# Optional: allow GitHub's webhook IPs to reach Jenkins (see README), otherwise leave empty.
+# github_webhook_cidrs = []
