@@ -6,7 +6,7 @@ running on **two AWS EC2 instances** provisioned by Terraform.
 | | EC2 #1 — CI/CD server | EC2 #2 — App & monitoring |
 |---|---|---|
 | Runs | Ubuntu, Jenkins, Docker | Ubuntu, k3s, Node.js app, Prometheus, Grafana |
-| Size (default) | `t3.micro` (1 GB RAM) | `t3.micro` (1 GB RAM) |
+| Size (default) | `t3.micro` (1 GB RAM) | `t3.small` (2 GB RAM) |
 | Ports (restricted to your IP) | 22, 8080 (Jenkins) | 22, 30080 (dashboard), 30030 (Grafana), 30090 (Prometheus) |
 
 ```
