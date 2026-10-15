@@ -13,7 +13,7 @@ pipeline {
 
   environment {
     DOCKERHUB_USER = 'tanish014'   // <-- edit
-    APP_HOST       = '10.20.1.127'          // <-- edit: `terraform output app_private_ip`
+    APP_HOST       = '10.20.1.120'          // <-- edit: `terraform output app_private_ip`
     IMAGE_NAME     = "${DOCKERHUB_USER}/devops-app"
   }
 
