@@ -1,111 +1,182 @@
 # Cloud-Native DevOps Monitoring and CI/CD Platform
 
-GitHub push → Jenkins → test → Docker build → Docker Hub → k3s deployment → Prometheus → Grafana → custom dashboard,
-running on **two AWS EC2 instances** provisioned by Terraform.
+An automated CI/CD and monitoring platform that deploys a Node.js application to AWS using Jenkins, Docker, and k3s. Prometheus collects application and infrastructure metrics, while Grafana provides a centralized monitoring dashboard.
 
-| | EC2 #1 — CI/CD server | EC2 #2 — App & monitoring |
+## Architecture
+
+**Workflow:** GitHub → Jenkins → Tests → Docker Build → Docker Hub → k3s Deployment → Prometheus → Grafana
+
+The infrastructure runs on two AWS EC2 instances provisioned using Terraform.
+
+| Component | EC2 #1: CI/CD Server | EC2 #2: Application & Monitoring |
 |---|---|---|
-| Runs | Ubuntu, Jenkins, Docker | Ubuntu, k3s, Node.js app, Prometheus, Grafana |
-| Size (default) | `t3.micro` (1 GB RAM) | `t3.small` (2 GB RAM) |
-| Ports (restricted to your IP) | 22, 8080 (Jenkins) | 22, 30080 (dashboard), 30030 (Grafana), 30090 (Prometheus) |
+| Operating system | Ubuntu | Ubuntu |
+| Main services | Jenkins, Docker | k3s, Node.js, Prometheus, Grafana, Node Exporter |
+| Instance type | `t3.micro` (Terraform default) | `t3.small` (deployed configuration) |
+| Purpose | Build, test, and publish application images | Run the application and collect monitoring metrics |
 
-```
+## Technologies Used
+
+- **AWS EC2:** Hosts the CI/CD server, application, and monitoring services.
+- **Terraform:** Provisions cloud infrastructure and security groups.
+- **Jenkins:** Automates the CI/CD pipeline.
+- **Docker:** Builds and packages the application into a container image.
+- **Docker Hub:** Stores application images.
+- **k3s:** Runs and manages the containerized application.
+- **Prometheus:** Collects application and infrastructure metrics.
+- **Grafana:** Displays metrics through monitoring dashboards.
+- **Node.js and Express:** Provide the application and its HTTP endpoints.
+- **GitHub:** Stores the source code and triggers pipeline execution through webhooks.
+
+## Project Structure
+
+```text
 .
-├── terraform/      VPC, subnet, security groups, 2 x EC2 (+ bootstrap scripts)
-├── Jenkinsfile     CI/CD pipeline
-├── app/            Node.js + Express app, /metrics, custom dashboard, tests, Dockerfile
-├── k8s/            Namespace, app, Prometheus (+RBAC), Grafana, provisioned dashboard
-└── scripts/        deploy.sh (runs on EC2 #2 during the Deploy stage)
+├── terraform/    # Infrastructure provisioning and bootstrap scripts
+├── Jenkinsfile   # Automated CI/CD pipeline
+├── app/          # Node.js application, tests, metrics and Dockerfile
+├── k8s/          # Kubernetes manifests and monitoring configuration
+└── scripts/      # Deployment automation scripts
 ```
 
-## Before you start
+## CI/CD Pipeline
 
-- AWS account + CLI credentials configured (`aws configure`), Terraform >= 1.5
-- An existing **EC2 key pair** in your chosen region (default `ap-south-1`)
-- A **Docker Hub** account and an access token (Account Settings → Security)
-- This repo pushed to your own GitHub repository
-- **Free tier:** see the "Running on the free tier" section below before you `apply`.
+When changes are pushed to the configured GitHub repository, the webhook triggers Jenkins.
 
-## Running on the free tier (t3.micro)
+The pipeline performs the following steps:
 
-The defaults are `t3.micro` x2, 15 GB disks, `standard` CPU credits (so burst usage is never billed as surplus), and the stack is tuned for 1 GB of RAM (2 GB swap on each instance, Jenkins heap capped at 384 MB, 1 app replica, small Prometheus/Grafana limits, k3s without Traefik/servicelb/metrics-server).
+1. Checks out the application source code.
+2. Installs dependencies and runs automated tests.
+3. Builds a Docker image.
+4. Pushes the image to Docker Hub.
+5. Connects to the application server and deploys the new image to k3s.
+6. Checks the Kubernetes rollout status to verify deployment.
 
-How "free" works depends on when your AWS account was created (check Billing → Free Tier, and confirm the instance type shows "Free tier eligible" in your region):
+This workflow reduces manual deployment steps and makes application updates more consistent.
 
-- **Account created before 15 July 2025:** 750 EC2 hours/month **shared across all instances**, for 12 months. Two instances running 24/7 use ~1,460 hours, so run them for roughly half the month, or **stop them when idle**. Public IPv4 addresses have their own allowance, so check the dashboard.
-- **Account created on/after 15 July 2025 (Free plan):** usage draws down your $100–$200 of credits for up to 6 months; a `t3.micro` is about $0.01/hour. Two instances 24/7 use a small fraction of the credits, but they run out eventually.
+## Monitoring and Observability
 
-Stop (don't terminate) when idle: `aws ec2 stop-instances --instance-ids <ids>`. Disks are kept; **public IPs change on restart**, so update the webhook URL and `APP_HOST`.
+Prometheus collects metrics from the application and configured infrastructure targets. Grafana presents these metrics in a centralized dashboard.
 
-**Expect it to be slow.** EC2 #1 (Jenkins) should work, with builds taking a few minutes. EC2 #2 is the tight one: k3s alone uses roughly half the RAM, and swap on EBS is slow. If pods get `OOMKilled` or SSH becomes unresponsive, check with `free -m` and `sudo k3s kubectl -n devops get pods`, then set `app_instance_type = "t3.small"` in `terraform.tfvars` (about double the hourly price, and free-tier eligible on new-plan accounts) and `terraform apply`.
+The monitoring setup includes:
 
-## 1. Provision infrastructure
+- Application health and Prometheus target status.
+- HTTP request activity.
+- Node.js process memory and event-loop metrics.
+- EC2 CPU utilization and memory usage.
+- Disk utilization and network traffic.
+- Prometheus scrape duration.
+
+Node Exporter provides host-level metrics used for infrastructure monitoring.
+
+### Accessing the Services
+
+Replace the example addresses with the current public IP addresses of your EC2 instances.
+
+| Service | URL |
+|---|---|
+| Deployed application | `http://<app-public-ip>:30080` |
+| Grafana monitoring dashboard | `http://<app-public-ip>:30030` |
+| Prometheus | `http://<app-public-ip>:30090` |
+| Jenkins | `http://<jenkins-public-ip>:8080` |
+
+Grafana dashboard: **CICD DevOps Monitoring**
+
+The services are exposed through configured ports. Access should be restricted through AWS security groups, and administrative services should not be exposed publicly without appropriate security controls.
+
+## Running the Application Locally
+
+Requirements: Node.js and npm.
+
+```bash
+cd app
+npm ci
+npm test
+npm start
+```
+
+The application runs on port `3000` by default.
+
+Available endpoints include:
+
+- `/healthz` — application health check.
+- `/metrics` — Prometheus metrics.
+- `/api/hello` — application endpoint used for testing.
+
+## Infrastructure Provisioning
+
+Requirements:
+
+- AWS account and configured AWS CLI credentials.
+- Terraform 1.5 or later.
+- An existing EC2 key pair in the selected AWS region.
+- Docker Hub account and access token.
+- A GitHub repository containing the project.
+
+Example commands:
 
 ```bash
 cd terraform
-cp terraform.tfvars.example terraform.tfvars   # set admin_cidr (your IP/32) and key_name
+cp terraform.tfvars.example terraform.tfvars
 terraform init
 terraform plan
 terraform apply
 ```
 
-Note the outputs (`jenkins_url`, `app_private_ip`, `dashboard_url`, ...). Bootstrap scripts take a few minutes after the instances show as running.
-Public IPs change if you stop/start an instance; re-run `terraform output` and update the webhook URL.
+Configure the variables in `terraform.tfvars` before applying the infrastructure. Use your own key pair and restrict administrative access to your IP address.
 
-## 2. Configure Jenkins (one-time)
+After provisioning, use the Terraform outputs to retrieve the instance addresses and service URLs.
 
-1. `ssh -i <key>.pem ubuntu@<cicd_public_ip>` then `sudo cat /var/lib/jenkins/secrets/initialAdminPassword`
-2. Open `jenkins_url`, unlock, install the suggested plugins **plus**: *SSH Agent*, *GitHub*.
-3. **Manage Jenkins → Credentials → add:**
-   - `dockerhub` — *Username with password*: Docker Hub username + access token
-   - `app-server-ssh` — *SSH Username with private key*: username `ubuntu`, the private key of your EC2 key pair
-4. Edit the two placeholders in `Jenkinsfile` (`DOCKERHUB_USER`, `APP_HOST` = `terraform output app_private_ip`), commit and push.
-5. **New Item → Pipeline → Pipeline script from SCM** → your GitHub repo URL, branch `main`, script path `Jenkinsfile`. Run **Build Now** once so Jenkins registers the trigger.
+**Note:** Terraform defaults and the currently deployed infrastructure may differ. Verify the configured instance types, IP addresses, and security groups before applying changes to existing resources.
 
-## 3. Connect GitHub → Jenkins
+## Testing the Deployment
 
-GitHub repo → Settings → Webhooks → Payload URL `http://<cicd_public_ip>:8080/github-webhook/`, content type `application/json`, "Just the push event".
-
-Jenkins' port is restricted to your IP by default, so GitHub cannot reach it until you allow GitHub's webhook ranges:
+Verify the Kubernetes workloads on the application server:
 
 ```bash
-curl -s https://api.github.com/meta | python3 -c "import json,sys; print(json.dumps([c for c in json.load(sys.stdin)['hooks'] if ':' not in c]))"
+kubectl get pods -n devops
+kubectl get deployments,services -n devops
 ```
 
-Put that list into `github_webhook_cidrs` in `terraform.tfvars` and `terraform apply` again. (GitHub's ranges change occasionally. If you would rather not open the port, replace `githubPush()` in the Jenkinsfile with `pollSCM('H/2 * * * *')`.)
-
-## 4. Use it
-
-Push a change to `app/`. Jenkins checks out, installs, tests, builds, pushes `<user>/devops-app:<build>-<sha>`, then deploys to k3s and waits for the rollout. A failed rollout is rolled back automatically.
-
-| What | URL |
-|---|---|
-| Custom monitoring dashboard | `http://<app_public_ip>:30080` |
-| Grafana (login `admin` / `admin`, **change on first login**) | `http://<app_public_ip>:30030` — dashboard *DevOps → DevOps Platform - Application Overview* |
-| Prometheus | `http://<app_public_ip>:30090` |
-
-Generate some traffic to see the graphs move:
-```bash
-for i in $(seq 1 200); do curl -s http://<app_public_ip>:30080/api/hello >/dev/null; curl -s http://<app_public_ip>:30080/api/fail >/dev/null; done
-```
-
-## Run the app locally
+Check the application health endpoint:
 
 ```bash
-cd app && npm ci && npm test && npm start     # http://localhost:3000, /metrics, /healthz
+curl http://localhost:3000/healthz
 ```
 
-## Teardown
+Verify the Prometheus targets in the Prometheus web interface and confirm that the Grafana panels display current metrics.
+
+For the CI/CD workflow, push a small application change and verify that Jenkins runs the pipeline and the updated version is deployed successfully.
+
+## Known Limitations
+
+- The application and monitoring workloads share a single application EC2 instance, so available CPU and memory are limited.
+- The k3s cluster runs on a single node and does not provide high availability across multiple nodes or availability zones.
+- Kubernetes rollouts may temporarily require resources for more than one application pod.
+- Public IP addresses may change when EC2 instances are stopped and started.
+- The service URLs use HTTP rather than HTTPS.
+- Alertmanager-based alerting is not configured.
+- The monitoring dashboard provides application and infrastructure metrics; live Jenkins pipeline status and deployment history are not integrated into the dashboard.
+
+## Security Considerations
+
+- Do not commit private keys, AWS credentials, Docker Hub tokens, or other secrets.
+- Store deployment credentials in Jenkins Credentials.
+- Restrict SSH, Jenkins, Grafana, and Prometheus access through appropriate security groups.
+- Change default Grafana credentials and use appropriate authentication.
+- Use HTTPS and stronger access controls before exposing the platform beyond a controlled demonstration environment.
+
+## Cleanup
+
+When the infrastructure is no longer needed, review the Terraform plan and destroy the resources created by this project:
 
 ```bash
-cd terraform && terraform destroy
+cd terraform
+terraform destroy
 ```
 
-## Known limitations
+Check AWS resources and billing after cleanup to ensure that no unnecessary resources remain.
 
-- 1 GB instances are at their limit: no headroom for extra replicas, and rollouts briefly run two app pods at once.
-- Single node k3s and single AZ: this demonstrates the workflow, it is not highly available.
-- Prometheus collects **application-process** metrics (CPU, memory, event loop, HTTP). Host-level metrics (disk, network) would need `node_exporter`, which is not included.
-- The dashboard shows the deployed version, commit and build number, but not live Jenkins pipeline status or deployment history; that would need the Jenkins API and credentials.
-- HTTP only, no TLS; access is limited by security groups, not authentication. Do not widen `admin_cidr` to `0.0.0.0/0` (Terraform rejects it).
-- Alerting (Alertmanager) is not configured.
+## Project Outcome
+
+The project demonstrates an automated deployment workflow combined with application and infrastructure monitoring. It brings together source control, automated testing, containerization, cloud infrastructure, Kubernetes deployment, metrics collection, and dashboard visualization in one platform.
